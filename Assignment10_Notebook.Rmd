@@ -1,0 +1,171 @@
+---
+title: "Assingment 10 - SEM 3"
+author: Michal Zieff
+
+---
+
+Loading packages
+
+```{r warning = FALSE}
+library(pacman)
+
+p_load(tidyverse, magrittr, lavaan)
+
+```
+
+Load data
+
+```{r}
+load("data/ylperu.dat")
+```
+
+We are interested in receptive vocabulary growth (ppvtraw), and whether this can be predicted by wealth index (wi) and rural/urban status at round 1 (typesite). 
+
+A. Build and test a latent growth model in which wi at Round 1 is a covariate of both the slope and the intercept latent variables making up the growth model.  What does the model tell us?
+
+Let's make a smaller dataset with only the variables of interest. 
+
+```{r}
+new_peru.dat <- peru.dat %>% 
+  select(childid, round, wi, ppvtraw, typesite)
+```
+
+Because we are looking at these different variables by round, we should transform the dataset to wide format, so that we can differentiate between each variable at different time points. 
+
+```{r}
+
+wide_wi <- new_peru.dat %>% 
+  select(-ppvtraw, -typesite) %>% 
+  spread(key = round, value = wi, sep = "_wi_") 
+
+wide_ppvtraw <- new_peru.dat %>% 
+  select(-wi, -typesite) %>% 
+  spread(key = round, value = ppvtraw, sep = "_ppvtraw_") 
+ 
+wide_typesite <- new_peru.dat %>% 
+  select(-wi, -ppvtraw) %>% 
+  spread(key = round, value = typesite, sep = "_typesite_")
+
+wide_peru1.dat <- left_join(wide_wi, wide_ppvtraw, by = "childid")
+
+wide_peru.dat <- left_join(wide_peru1.dat, wide_typesite, by = "childid")
+
+wide_peru.dat %>% 
+  na.omit()
+
+```
+
+We are interested in receptive vocabulary growth (ppvtraw), and whether this can be predicted by wealth index (wi) and rural/urban status at round 1 (typesite). 
+
+A. Build and test a latent growth model in which wi at Round 1 is a covariate of both the slope and the intercept latent variables making up the growth model.  What does the model tell us?
+
+```{r}
+lgm1 <- 
+'
+  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 + 1*round_ppvtraw_5
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 + 4*round_ppvtraw_5
+
+  i ~ round_wi_1
+  s ~ round_wi_1
+'
+fit_lgm1 <- growth(lgm1, data = wide_peru.dat)
+summary(fit_lgm1, fit.measures = TRUE, standardized = TRUE)
+
+```
+Regressions and covariances
+
+```{r}
+resid(fit_lgm1, type = "normalized")
+
+```
+
+Re-specify
+
+```{r}
+lgm2 <- 
+'
+  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
+
+  i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
+  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
+'
+fit_lgm2 <- growth(lgm2, data = wide_peru.dat)
+summary(fit_lgm2, fit.measures = TRUE, standardized = TRUE)
+resid(fit_lgm2, type = "normalized")
+```
+Now add covariances between wealth index 
+
+```{r}
+
+lgm3 <- 
+'
+  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
+
+  i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
+  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
+
+  round_wi_1 ~~ v*round_wi_1
+  round_wi_2 ~~ V*round_wi_2
+  round_wi_3 ~~ V*round_wi_3
+  round_wi_4 ~~ v*round_wi_4
+
+  round_wi_2 ~ round_ppvtraw_2
+  round_wi_3 ~ round_ppvtraw_3
+  round_wi_4 ~ round_ppvtraw_4
+
+  
+'
+fit_lgm3 <- growth(lgm3, data = wide_peru.dat)
+summary(fit_lgm3, fit.measures = TRUE, standardized = TRUE)
+resid(fit_lgm3, type = "normalized")
+
+```
+Much worse - not the case that variances between time points is the same
+
+
+```{r}
+lgm4 <- 
+'
+  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
+
+  i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
+  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
+
+  round_wi_2 ~ round_ppvtraw_2
+  round_wi_3 ~ round_ppvtraw_3
+  round_wi_4 ~ round_ppvtraw_4
+
+'
+fit_lgm4 <- growth(lgm4, data = wide_peru.dat)
+summary(fit_lgm4, fit.measures = TRUE, standardized = TRUE)
+resid(fit_lgm4, type = "normalized")
+```
+Better, but still evidently not helpful to specify covariance. 
+
+Plot
+
+```{r}
+new_peru.dat %<>% 
+  filter(wi != "NaN") %<>% 
+  mutate(wi_level = cut(wi, 3, labels = c("Low", "Medium", "High")))
+ 
+new_peru.dat %>% 
+  select(childid, round, ppvtraw, wi_level, typesite) %>% 
+  filter(round != 1) %>% 
+  ggplot(aes(x = round, y = as.numeric(ppvtraw), group = childid, colour = wi_level))+ 
+  geom_line(size = 0.1, alpha = 0.15) +
+  labs(title = "Plot showing receptive vocabulary in individuals over time", 
+       x = "Round", y = "Receptive vocabulary") + facet_wrap(~typesite) + guides(colour = guide_legend(override.aes = list(alpha = 1))) +   theme_minimal()
+
+```
+Diagram
+
+```{r}
+library(knitr)
+
+include_graphics('./Diagram.png')
+```
+
