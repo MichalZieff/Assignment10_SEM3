@@ -9,7 +9,7 @@ Loading packages
 ```{r warning = FALSE}
 library(pacman)
 
-p_load(tidyverse, magrittr, lavaan)
+p_load(tidyverse, magrittr, lavaan, knitr)
 
 ```
 
@@ -38,48 +38,60 @@ wide_wi <- new_peru.dat %>%
   select(-ppvtraw, -typesite) %>% 
   spread(key = round, value = wi, sep = "_wi_") 
 
+#make a wide dataset for wi variable only (incl. childid). 
+
 wide_ppvtraw <- new_peru.dat %>% 
   select(-wi, -typesite) %>% 
   spread(key = round, value = ppvtraw, sep = "_ppvtraw_") 
+
+#wide dataset for ppvtraw variable only.
  
 wide_typesite <- new_peru.dat %>% 
   select(-wi, -ppvtraw) %>% 
   spread(key = round, value = typesite, sep = "_typesite_")
 
-wide_peru1.dat <- left_join(wide_wi, wide_ppvtraw, by = "childid")
+#same for typesite.
 
-wide_peru.dat <- left_join(wide_peru1.dat, wide_typesite, by = "childid")
+wide_peru1.dat <- left_join(wide_wi, wide_ppvtraw, by = "childid") #using leftjoin, join two of the three wide datasets using childid as the matching variable. 
+
+wide_peru.dat <- left_join(wide_peru1.dat, wide_typesite, by = "childid") #now, join the above left-joined dataset with the remaining wide dataset we creared (left_join only allows us to join two datasets at a time). 
 
 wide_peru.dat %>% 
   na.omit()
 
+#remove missing data.
+
 ```
 
-We are interested in receptive vocabulary growth (ppvtraw), and whether this can be predicted by wealth index (wi) and rural/urban status at round 1 (typesite). 
-
-A. Build and test a latent growth model in which wi at Round 1 is a covariate of both the slope and the intercept latent variables making up the growth model.  What does the model tell us?
+So, to repeat the question, we need to build and test a latent growth model in which wi at Round 1 is a covariate of both the slope and the intercept latent variables making up the growth model.  What does the model tell us?
 
 ```{r}
 lgm1 <- 
 '
-  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 + 1*round_ppvtraw_5
+#Specifying the measurement model - intercept as the latent variable, and receptive vocab at the different time points as the manifest variables, so to speak. 
+
+  i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 + 1*round_ppvtraw_5 
   s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 + 4*round_ppvtraw_5
 
-  i ~ round_wi_1
+#Now, we specify the regressions. We specify the intercept (vocab at different time points) as the outcome, and wi at time point 1 as the predictor. 
+
+  i ~ round_wi_1 
   s ~ round_wi_1
 '
-fit_lgm1 <- growth(lgm1, data = wide_peru.dat)
-summary(fit_lgm1, fit.measures = TRUE, standardized = TRUE)
+fit_lgm1 <- growth(lgm1, data = wide_peru.dat) #fit the model
+summary(fit_lgm1, fit.measures = TRUE, standardized = TRUE) #observe the output
 
 ```
-Regressions and covariances
+We see that our model is significantly different to the saturated model, which is not unexpected after a first attempt. There are still other paths/variances that we could specify if we want a perfect fit. Our first model is also significantly different to a baseline model, which is a good start, but no meaningful indication of how promising our model is. In specifying the above paths, we have lost only 3 degrees of freedom (baseline df = 10). If we look at our goodness of fit indices, we see that they are not great - CFI = .66 and TLI = .51 We want these indices to be as close to 1 as possible, and not below .90 (i.e., we want the model and data to match as identically as possible). Next, we can look at the "badness of fit" indices, specifically the RMSEA and SRMR - want both to be as close to zero as possible (perfect fit), and no less than .08. Our values are .37 and .15 respectively, suggesting that this model does not fit well with the data. We should also look at the CIs computed for the RMSEA (0.350, 0.381). It appears to be a reasonable estimate. In addition, the lower CI is much higher than 0, and the upper CI is much larger than .08. A caveat: good fit indices do not necessarily mean a well-specified model. 
+
+Let's take a closer look at the residuals to see if we can pinpoint any specific problems:
 
 ```{r}
 resid(fit_lgm1, type = "normalized")
-
 ```
+There appears to be huge standardised residuals for round 5 - 3/4 residuals above abs(3) are from measurements in round 5. Hence, we should try to re-specify the model excluding round 5. We should also try adding the wealth index measurements at the other time points to see how that changes the model. 
 
-Re-specify
+B. 
 
 ```{r}
 lgm2 <- 
@@ -88,80 +100,95 @@ lgm2 <-
   s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
 
   i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
-  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
+  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
 '
 fit_lgm2 <- growth(lgm2, data = wide_peru.dat)
 summary(fit_lgm2, fit.measures = TRUE, standardized = TRUE)
 resid(fit_lgm2, type = "normalized")
 ```
-Now add covariances between wealth index 
+Our model has still not hit the saturation point (chi-square test is still significant), but we have lost a few degrees of freedom as a result of adding the extra predictors. Our goodness of fit indices are now excellent (.98 and .95 respectively) as are the RMSEA and SRMR (.08 and .02 respectively). We can look at the AIC, a comparative measure of fit (the model with the lowest AIC is the best fitting model). Unsuprisingly, the AIC of our second model (40014.39) is smaller than our first attempt (52648.05). In addition, the standardised residuals are looking much better now (all < 2). There are some non-significant regression results (e.g., wealth index at round 3 does not appear to significantly predict the rate of change in receptive vocabulary scores). However, we will not interpret these meaningfully for now. 
+
+We might also want to try specifying equal variances and covariances between wealth index measurements at the different time points.  
 
 ```{r}
 
 lgm3 <- 
 '
   i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 
-  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 #measurement model
 
   i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
-  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
+  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 #regression specifications
 
   round_wi_1 ~~ v*round_wi_1
   round_wi_2 ~~ V*round_wi_2
   round_wi_3 ~~ V*round_wi_3
-  round_wi_4 ~~ v*round_wi_4
+  round_wi_4 ~~ v*round_wi_4  #specifying variances - v is a randomly chosen constant to specify                                that the variances are identical.
 
   round_wi_2 ~ round_ppvtraw_2
   round_wi_3 ~ round_ppvtraw_3
   round_wi_4 ~ round_ppvtraw_4
 
-  
+                              #specifying that covariances are equal. 
 '
 fit_lgm3 <- growth(lgm3, data = wide_peru.dat)
 summary(fit_lgm3, fit.measures = TRUE, standardized = TRUE)
 resid(fit_lgm3, type = "normalized")
 
 ```
-Much worse - not the case that variances between time points is the same
+This model fit is much poorer, as indicated by low CFI and TLI, and an extremely high SRMR (.94!). Interestingly, though, the AIC is lower than it was for the second model (39320.62, vs 40014.39). Perhaps this has to do with the increased degrees of freedom in this model? Of note is the enormous residuals, confirming that this model is not a good fit for the data.  
 
+Why did this model have such a poor fit? We specified that the variances (between wealth index measurements) and covariances between wealth index and receptive vocabulary at each time point were equal, which is clearly not the case for our data. The relationship between wealth index and vocabulary changes as time goes on, which the above specifications did not account for - we can have a closer look at this in the plot later on. 
+
+To try one last model before moving on, we might want to see if we can add an additional predictor to the model, typesite at round 1, alongside wealth index and time 1 (Disclaimer: I'm not sure if this can be done, or if it makes sense to do this, but trying it anyway). 
 
 ```{r}
-lgm4 <- 
+lgmT <- 
 '
   i =~ 1*round_ppvtraw_2 + 1*round_ppvtraw_3 + 1*round_ppvtraw_4 
-  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4 
+  s =~ 1*round_ppvtraw_2 + 2*round_ppvtraw_3 + 3*round_ppvtraw_4
 
-  i ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4 
-  s ~ round_wi_1 + round_wi_2 + round_wi_3 + round_wi_4
 
-  round_wi_2 ~ round_ppvtraw_2
-  round_wi_3 ~ round_ppvtraw_3
-  round_wi_4 ~ round_ppvtraw_4
-
+  i ~ round_wi_1 + round_typesite_1
+  s ~ round_wi_1 + round_typesite_1
 '
-fit_lgm4 <- growth(lgm4, data = wide_peru.dat)
-summary(fit_lgm4, fit.measures = TRUE, standardized = TRUE)
-resid(fit_lgm4, type = "normalized")
-```
-Better, but still evidently not helpful to specify covariance. 
+fit_lgmT <- growth(lgmT, data = wide_peru.dat)
+summary(fit_lgmT, fit.measures = TRUE, standardized = TRUE)
 
-Plot
+```
+The model appears to fit the data quite nicely. It appears that living in a rural area (where the child was tested) is associated with significantly poorer receptive vocabulary at the first time point (round 1) than if a child lives in an urban area. However, it does not significantly predict the change in receptive vocabulary over time. 
+
+C. Let's try to plot the data to see if any patterns are noticable and noteworthy. 
 
 ```{r}
 new_peru.dat %<>% 
-  filter(wi != "NaN") %<>% 
-  mutate(wi_level = cut(wi, 3, labels = c("Low", "Medium", "High")))
+  filter(wi != "NaN") %<>%  #removing NaNs from the dataset.
+  mutate(wi_level = cut(wi, 3, labels = c("Low", "Medium", "High"))) #changing the wi variable so that we can clearly distinguish between different wi's on the plot.
  
 new_peru.dat %>% 
   select(childid, round, ppvtraw, wi_level, typesite) %>% 
-  filter(round != 1) %>% 
+  filter(round != 1) %>% #We don't want round one, as there is missing data
   ggplot(aes(x = round, y = as.numeric(ppvtraw), group = childid, colour = wi_level))+ 
   geom_line(size = 0.1, alpha = 0.15) +
   labs(title = "Plot showing receptive vocabulary in individuals over time", 
        x = "Round", y = "Receptive vocabulary") + facet_wrap(~typesite) + guides(colour = guide_legend(override.aes = list(alpha = 1))) +   theme_minimal()
 
 ```
-Diagram
+We can see, very clearly, that in urban testing sites, most children have high wealth indices, with fewer having medium wealth indices, and very few with low wealth indices. This is in contrast to those who were tested in rural areas - most children here come from low and medium wealth backgrounds. While there is definite variation amongst individuals, some clear patterns emerge. Looking at urban children: At rounds 2, 3, and 4, it is clear that on avergae, children with higher wi's are performing better than children with medium and low wi's. By the time we get to round 5, however, there is a lot more overlap in performance, suggesting a "catching up" or maturation effect in later years. 
+
+In the rural areas, we can see that the starting point for children with low wi's appears to be lower than that of children with higher wi's. Once again, we see more overlap as time goes on, although there still appears to be a reasonable cluster of green and blue (medium and high) lines (representing individuals) obtaining higher scores. 
+
+When looking at the two facets of the plot (both rural and urban sites), we can see that, on average, children appear to be performing slightly better at all time points, although, as we said earlier, there is substantial variation amongst individual children. 
+
+Overall, then, it seems that wealth index and typesite may, initially, at least, affect receptive vocabulary perfomance. However, these differences become more subtle as children get older. These patterns make sense given the poor-fitting model we computed earlier, where we tried to specify variances and covariances as equal, when they are clearly not uniform across time. 
+
+D. Diagram
+
+I did not use the latest model for the diagram (lgmT) due to uncertainty in the specification. Rather I created the diagram for the second model I computed (lgm2), which fitted the data nicely and was the most interesting. 
+
+Note: Square = manifest variable, circle = latent variable (for the latent growth model, the latest variables were the slope and intercept).
+
+Note: Estimates provided, with standard errors presented in parentheses where applicable. 
 
 ```{r}
 library(knitr)
