@@ -188,11 +188,10 @@ I did not use the latest model for the diagram (lgmT) due to uncertainty in the 
 
 Note: Square = manifest variable, circle = latent variable (for the latent growth model, the latest variables were the slope and intercept).
 
-Note: Estimates provided, with standard errors presented in parentheses where applicable. 
+Note: Estimates provided with standard errors presented in parentheses where applicable. 
 
 ```{r}
-library(knitr)
-
-include_graphics('./Diagram.png')
+knitr::include_graphics('./Diagram.png')
 ```
 
+Github repo link: https://github.com/MichalZieff/Assignment10_SEM3.git
